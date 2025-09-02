@@ -2,22 +2,26 @@ import React, { useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { apiFetch } from '../api';
 
-// Campos por tipo de automatización (igual que en crear)
 const camposPorTipo: Record<string, { label: string; name: string; type: string; placeholder?: string }[]> = {
-  'enviar_whatsapp': [
+  whatsapp: [
+    { label: 'Números de destino', name: 'numeros', type: 'textarea', placeholder: 'Un número por línea o separados por coma. Ej: +5492611111111, +5492612222222' },
     { label: 'Mensaje', name: 'mensaje', type: 'text', placeholder: 'Escribe el mensaje...' },
   ],
-  'actualizar_sheets': [
+  email: [
+    { label: 'Destinatario', name: 'destinatario', type: 'email', placeholder: 'correo@ejemplo.com' },
+    { label: 'Asunto', name: 'asunto', type: 'text', placeholder: 'Asunto del email' },
+    { label: 'Cuerpo', name: 'cuerpo', type: 'text', placeholder: 'Mensaje del email' },
+  ],
+  sheets: [
     { label: 'Hoja', name: 'hoja', type: 'text', placeholder: 'Nombre de la hoja' },
     { label: 'Valor', name: 'valor', type: 'text', placeholder: 'Nuevo valor' },
   ],
-  // Agrega más tipos y campos aquí si tu backend lo soporta
 };
 
 const nombresPorTipo: Record<string, string> = {
-  'enviar_whatsapp': 'Enviar WhatsApp',
-  'actualizar_sheets': 'Actualizar Google Sheets',
-  // ...
+  whatsapp: 'Enviar WhatsApp',
+  email: 'Enviar Email',
+  sheets: 'Actualizar Google Sheets',
 };
 
 const EjecutarAutomatizacionDisponible: React.FC = () => {
@@ -37,10 +41,24 @@ const EjecutarAutomatizacionDisponible: React.FC = () => {
     setLoading(true);
     setResultado(null);
     try {
-      // Llama al backend para ejecutar la automatización de este tipo con los parámetros
+      let paramsToSend: any = { ...parametros };
+      if (tipoId === 'whatsapp') {
+        let numerosRaw = parametros['numeros'] || '';
+        let numeros = numerosRaw.split(/[\,\n]+/).map((n: string) => n.trim()).filter(Boolean);
+        numeros = numeros.map((numero: string) => {
+          if (!numero.startsWith('whatsapp:')) {
+            numero = 'whatsapp:' + numero.replace(/^\+?/, '');
+          }
+          return numero;
+        });
+        paramsToSend = {
+          to: numeros.join(','),
+          body: parametros['mensaje'] || ''
+        };
+      }
       const res = await apiFetch(`/automatizaciones/ejecutar-tipo`, {
         method: 'POST',
-        body: JSON.stringify({ tipo: tipoId, parametros })
+        body: JSON.stringify({ tipo: tipoId, parametros: paramsToSend })
       });
       const data = await res.json();
       setResultado(data);
@@ -58,15 +76,26 @@ const EjecutarAutomatizacionDisponible: React.FC = () => {
         {campos.map(campo => (
           <div key={campo.name}>
             <label className="block mb-2 font-semibold text-gray-700">{campo.label}</label>
-            <input
-              type={campo.type}
-              name={campo.name}
-              value={parametros[campo.name] || ''}
-              onChange={e => setParametros(p => ({ ...p, [campo.name]: e.target.value }))}
-              className="w-full p-3 border rounded focus:outline-none focus:ring-2 focus:ring-blue-400"
-              placeholder={campo.placeholder}
-              required
-            />
+            {campo.type === 'textarea' ? (
+              <textarea
+                name={campo.name}
+                value={parametros[campo.name] || ''}
+                onChange={e => setParametros(p => ({ ...p, [campo.name]: e.target.value }))}
+                className="w-full p-3 border rounded focus:outline-none focus:ring-2 focus:ring-blue-400 min-h-[80px]"
+                placeholder={campo.placeholder}
+                required
+              />
+            ) : (
+              <input
+                type={campo.type}
+                name={campo.name}
+                value={parametros[campo.name] || ''}
+                onChange={e => setParametros(p => ({ ...p, [campo.name]: e.target.value }))}
+                className="w-full p-3 border rounded focus:outline-none focus:ring-2 focus:ring-blue-400"
+                placeholder={campo.placeholder}
+                required
+              />
+            )}
           </div>
         ))}
         <button
@@ -78,7 +107,25 @@ const EjecutarAutomatizacionDisponible: React.FC = () => {
         </button>
       </form>
       {resultado && (
-        <div className="mt-4 text-center text-green-600 font-bold">¡Automatización ejecutada!</div>
+        <div className="mt-4">
+          <div className="text-center text-green-600 font-bold mb-2">¡Automatización ejecutada!</div>
+          {Array.isArray(resultado.resultados) && resultado.resultados.length > 0 && (
+            <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 mt-2">
+              <h4 className="font-semibold text-blue-700 mb-2">Detalles de la ejecución:</h4>
+              <ul className="list-disc ml-6 text-gray-700 text-sm">
+                {resultado.resultados.map((r: any, i: number) => (
+                  <li key={i} className="mb-1">
+                    <span className="font-medium">Acción:</span> {r.accion?.replace('_', ' ')} |
+                    <span className="font-medium ml-1">Estado:</span> <span className={r.status === 'enviado' || r.status === 'actualizado' ? 'text-green-600' : r.status === 'error' ? 'text-red-600' : 'text-gray-600'}>{r.status}</span>
+                    {r.parametros && (
+                      <span> | <span className="font-medium">Parámetros:</span> {typeof r.parametros === 'string' ? r.parametros : JSON.stringify(r.parametros)}</span>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </div>
       )}
       {error && <div className="text-red-500 text-center mt-2">{error}</div>}
       <button
@@ -92,3 +139,4 @@ const EjecutarAutomatizacionDisponible: React.FC = () => {
 };
 
 export default EjecutarAutomatizacionDisponible;
+
